@@ -72,7 +72,6 @@ Endpoint หลัก
 ├── db/schema.sql              ตารางและ constraint
 ├── docker-compose.yml         PostgreSQL 16 (โหลด schema อัตโนมัติ)
 ├── requests.http              ไฟล์ทดสอบ API (สำเร็จ + error ทุกแบบ)
-├── requests.http              ไฟล์ทดสอบ API
 ├── public/                    หน้าเว็บ (HTML + CSS + JS ล้วน)
 ├── scripts/race-test.js       สคริปต์พิสูจน์การปรับสต็อกพร้อมกัน
 ├── src/
