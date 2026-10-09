@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>คลังสินค้า</title>
+  <link rel="icon" href="data:,">
+  <script>
+    // ตั้งธีมก่อนวาดหน้า ป้องกันหน้าขาววูบเมื่อผู้ใช้เลือกโหมดมืดไว้
+    try {
+      var t = localStorage.getItem('theme');
+      if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t);
+    } catch (e) { /* ใช้ค่าตามระบบ */ }
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="page">
+    <header class="top">
+      <div>
+        <h1>คลังสินค้า</h1>
+        <p class="sub" id="summary">กำลังโหลด…</p>
+      </div>
+      <div class="top-actions">
+        <button class="btn btn-quiet theme-switch" id="themeToggle" type="button" role="switch" aria-checked="false">
+          <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+          <span>โหมดมืด</span>
+        </button>
+        <button class="btn btn-primary" id="openAdd" type="button">เพิ่มสินค้า</button>
+      </div>
+    </header>
+
+    <section class="alert" id="lowStock" aria-labelledby="lowStockTitle" hidden>
+      <p class="alert-title" id="lowStockTitle"></p>
+      <ul class="alert-list" id="lowStockList"></ul>
+    </section>
+
+    <section class="toolbar" aria-label="ค้นหาและกรอง">
+      <label class="field grow">
+        <span class="label">ค้นหา</span>
+        <input type="search" id="search" placeholder="ชื่อสินค้าหรือ SKU" autocomplete="off" maxlength="100">
+      </label>
+      <label class="field">
+        <span class="label">หมวดหมู่</span>
+        <select id="categoryFilter"><option value="">ทุกหมวดหมู่</option></select>
+      </label>
+    </section>
+
+    <div class="table-wrap">
+      <table class="products">
+        <thead>
+          <tr>
+            <th scope="col">สินค้า</th>
+            <th scope="col">หมวดหมู่</th>
+            <th scope="col" class="num">ราคาทุน</th>
+            <th scope="col" class="num">คงเหลือ</th>
+            <th scope="col"><span class="sr-only">การทำงาน</span></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <nav class="pager" id="pager" aria-label="เปลี่ยนหน้า" hidden>
+      <button class="btn btn-quiet" id="prev" type="button">ก่อนหน้า</button>
+      <span id="pageInfo"></span>
+      <button class="btn btn-quiet" id="next" type="button">ถัดไป</button>
+    </nav>
+  </main>
+
+  <!-- เพิ่มสินค้า -->
+  <dialog id="addDialog" aria-labelledby="addTitle">
+    <form id="addForm" novalidate>
+      <h2 id="addTitle">เพิ่มสินค้า</h2>
+      <label class="field">
+        <span class="label">ชื่อสินค้า</span>
+        <input name="name" required maxlength="200" autocomplete="off">
+        <span class="err" data-err="name"></span>
+      </label>
+      <div class="row2">
+        <label class="field">
+          <span class="label">SKU</span>
+          <input name="sku" required maxlength="50" autocomplete="off">
+          <span class="hint">ใช้ A-Z, 0-9, จุด, ขีดกลาง, ขีดล่าง</span>
+          <span class="err" data-err="sku"></span>
+        </label>
+        <label class="field">
+          <span class="label">หมวดหมู่</span>
+          <select name="category_id" required id="addCategory"></select>
+          <span class="err" data-err="category_id"></span>
+        </label>
+      </div>
+      <div class="row2">
+        <label class="field">
+          <span class="label">ราคาทุน (บาท)</span>
+          <input name="cost_price" type="number" inputmode="decimal" min="0" step="0.01" required>
+          <span class="err" data-err="cost_price"></span>
+        </label>
+        <label class="field">
+          <span class="label">สต็อกเริ่มต้น</span>
+          <input name="stock_quantity" type="number" inputmode="numeric" min="0" step="1" value="0">
+          <span class="err" data-err="stock_quantity"></span>
+        </label>
+      </div>
+      <p class="form-error" id="addError" role="alert" hidden></p>
+      <div class="actions">
+        <button class="btn btn-quiet" type="button" data-close>ยกเลิก</button>
+        <button class="btn btn-primary" type="submit">เพิ่มสินค้า</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ปรับสต็อก -->
+  <dialog id="adjustDialog" aria-labelledby="adjustTitle">
+    <form id="adjustForm" novalidate>
+      <h2 id="adjustTitle">ปรับสต็อก</h2>
+      <p class="product-line" id="adjustProduct"></p>
+
+      <fieldset class="seg">
+        <legend class="label">ประเภทรายการ</legend>
+        <label><input type="radio" name="mode" value="in" checked><span>เพิ่มสต็อก</span></label>
+        <label><input type="radio" name="mode" value="out"><span>ลดสต็อก</span></label>
+      </fieldset>
+
+      <label class="field">
+        <span class="label">จำนวน (ชิ้น)</span>
+        <input name="qty" type="number" inputmode="numeric" min="1" step="1" required>
+      </label>
+      <p class="preview" id="adjustPreview" aria-live="polite"></p>
+
+      <label class="field">
+        <span class="label">เหตุผล (ไม่บังคับ)</span>
+        <input name="reason" maxlength="255" autocomplete="off" placeholder="เช่น รับของเข้า, ขายออก, ของเสีย">
+      </label>
+      <p class="form-error" id="adjustError" role="alert" hidden></p>
+      <div class="actions">
+        <button class="btn btn-quiet" type="button" data-close>ยกเลิก</button>
+        <button class="btn btn-primary" type="submit" id="adjustSubmit">ปรับสต็อก</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ประวัติ -->
+  <dialog id="historyDialog" class="wide" aria-labelledby="historyTitle">
+    <div class="dialog-body">
+      <h2 id="historyTitle">ประวัติรายการ</h2>
+      <p class="product-line" id="historyProduct"></p>
+      <div class="table-wrap inner">
+        <table class="history">
+          <thead>
+            <tr>
+              <th scope="col">เวลา</th>
+              <th scope="col">ประเภท</th>
+              <th scope="col" class="num">จำนวน</th>
+              <th scope="col" class="num">ก่อน → หลัง</th>
+              <th scope="col">เหตุผล</th>
+            </tr>
+          </thead>
+          <tbody id="historyRows"></tbody>
+        </table>
+      </div>
+      <p class="form-error" id="historyError" role="alert" hidden></p>
+      <div class="actions">
+        <button class="btn btn-quiet" type="button" id="historyMore" hidden>โหลดเพิ่ม</button>
+        <button class="btn btn-primary" type="button" data-close>ปิด</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

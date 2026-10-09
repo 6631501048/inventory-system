@@ -1,0 +1,313 @@
+# ============================================================
+# Inventory Management API - ไฟล์ทดสอบ
+#
+# ใช้กับ VS Code ส่วนเสริม "REST Client" (humao.rest-client)
+# กดคำว่า "Send Request" เหนือแต่ละคำขอ หรือวางเคอร์เซอร์แล้วกด Ctrl+Alt+R
+#
+# - รัน API ก่อน:  docker compose up -d && npm start
+# - ไฟล์นี้เรียงเป็นลำดับ รันจากบนลงล่างได้เลย: สร้างสินค้า แล้วนำ id ที่ได้ไปใช้ในคำขอถัดไป
+# - ทุกคำขอมีบรรทัด "Expect" บอกผลที่ควรได้
+# - SKU และชื่อหมวดหมู่ใช้ {{$timestamp}} จึงรันซ้ำกี่รอบก็ไม่ชนกัน
+# - ใช้ client อื่น (เช่น JetBrains) ที่ไม่รองรับ {{createProduct.response...}}
+#   ให้แทนด้วย id จริงของสินค้า (ดูจากผลของคำขอ "สร้างสินค้า")
+# ============================================================
+
+@baseUrl = http://localhost:3000
+
+
+### ------------------------------------------------------------
+### 0. Health check
+### ------------------------------------------------------------
+
+# Expect: 200  {"status":"ok","database":"connected"}
+GET {{baseUrl}}/api/health
+
+
+### ------------------------------------------------------------
+### 1. Categories
+### ------------------------------------------------------------
+
+### ดูรายการหมวดหมู่ (มี IT, Office Supply, Furniture ตั้งต้น) พร้อมจำนวนสินค้า
+# Expect: 200
+GET {{baseUrl}}/api/categories
+
+
+### สร้างหมวดหมู่ใหม่
+# @name createCategory
+# Expect: 201
+POST {{baseUrl}}/api/categories
+Content-Type: application/json
+
+{
+  "name": "Tools {{$timestamp}}",
+  "description": "เครื่องมือช่าง"
+}
+
+
+### สร้างหมวดหมู่ชื่อซ้ำ
+# Expect: 409  DUPLICATE_CATEGORY
+POST {{baseUrl}}/api/categories
+Content-Type: application/json
+
+{
+  "name": "IT"
+}
+
+
+### สร้างหมวดหมู่โดยไม่ส่งชื่อ
+# Expect: 400  VALIDATION_ERROR (details ชี้ฟิลด์ name)
+POST {{baseUrl}}/api/categories
+Content-Type: application/json
+
+{}
+
+
+### ------------------------------------------------------------
+### 2. POST /api/products  สร้างสินค้า
+### ------------------------------------------------------------
+
+### สร้างสินค้า พร้อมสต็อกเริ่มต้น 3 ชิ้น (จะมีรายการ IN "Initial stock" ให้อัตโนมัติ)
+# @name createProduct
+# Expect: 201  (SKU ถูกแปลงเป็นตัวพิมพ์ใหญ่)
+POST {{baseUrl}}/api/products
+Content-Type: application/json
+
+{
+  "name": "Keyboard",
+  "sku": "http-{{$timestamp}}",
+  "cost_price": 350.5,
+  "category_id": 1,
+  "stock_quantity": 3
+}
+
+
+### สร้างสินค้า โดยไม่ระบุสต็อกเริ่มต้น (ค่าเริ่มต้น 0 และไม่มีรายการประวัติ)
+# Expect: 201
+POST {{baseUrl}}/api/products
+Content-Type: application/json
+
+{
+  "name": "Mouse",
+  "sku": "http-m-{{$timestamp}}",
+  "cost_price": 199,
+  "category_id": 1
+}
+
+
+### SKU ซ้ำกับสินค้าที่เพิ่งสร้าง (ตัวพิมพ์เล็ก/ใหญ่ไม่ต่างกัน)
+# Expect: 409  DUPLICATE_SKU
+POST {{baseUrl}}/api/products
+Content-Type: application/json
+
+{
+  "name": "Keyboard (ซ้ำ)",
+  "sku": "{{createProduct.response.body.$.data.sku}}",
+  "cost_price": 1,
+  "category_id": 1
+}
+
+
+### ข้อมูลไม่ครบ/ไม่ถูกต้องหลายฟิลด์พร้อมกัน
+# Expect: 400  VALIDATION_ERROR (details แจ้งทุกฟิลด์ที่ผิดในครั้งเดียว)
+POST {{baseUrl}}/api/products
+Content-Type: application/json
+
+{
+  "sku": "bad sku!",
+  "cost_price": -5,
+  "stock_quantity": 1.5
+}
+
+
+### หมวดหมู่ที่ไม่มีอยู่
+# Expect: 400  CATEGORY_NOT_FOUND
+POST {{baseUrl}}/api/products
+Content-Type: application/json
+
+{
+  "name": "Ghost",
+  "sku": "http-g-{{$timestamp}}",
+  "cost_price": 10,
+  "category_id": 99999
+}
+
+
+### JSON ผิดรูปแบบ
+# Expect: 400  INVALID_JSON
+POST {{baseUrl}}/api/products
+Content-Type: application/json
+
+{ "name": "broken",
+
+
+### ------------------------------------------------------------
+### 3. GET /api/products  รายการสินค้า (ค้นหา / กรอง / แบ่งหน้า)
+### ------------------------------------------------------------
+
+### รายการทั้งหมด (หน้า 1, 20 รายการ เรียงใหม่ไปเก่า)
+# Expect: 200  (มี meta: page, limit, total, total_pages)
+GET {{baseUrl}}/api/products
+
+
+### ค้นหาจากชื่อหรือ SKU
+# Expect: 200
+GET {{baseUrl}}/api/products?search=keyboard
+
+
+### กรองตามหมวดหมู่ + แบ่งหน้า
+# Expect: 200
+GET {{baseUrl}}/api/products?category_id=1&page=1&limit=5
+
+
+### พารามิเตอร์ไม่ถูกต้อง (limit เกิน 100)
+# Expect: 400  VALIDATION_ERROR
+GET {{baseUrl}}/api/products?limit=101
+
+
+### ------------------------------------------------------------
+### 4. GET /api/products/low-stock  สินค้าใกล้หมด (น้อยกว่า 5 ชิ้น)
+### ------------------------------------------------------------
+
+### สินค้าที่เพิ่งสร้าง (สต็อก 3) ต้องอยู่ในรายการนี้
+# Expect: 200  (meta.threshold = 5)
+GET {{baseUrl}}/api/products/low-stock
+
+
+### เปลี่ยนเกณฑ์เป็น 10 เฉพาะคำขอนี้
+# Expect: 200  (meta.threshold = 10)
+GET {{baseUrl}}/api/products/low-stock?threshold=10
+
+
+### เกณฑ์ไม่ถูกต้อง
+# Expect: 400  VALIDATION_ERROR
+GET {{baseUrl}}/api/products/low-stock?threshold=abc
+
+
+### ------------------------------------------------------------
+### 5. GET /api/products/:id  สินค้ารายตัว
+### ------------------------------------------------------------
+
+### ดูสินค้าที่เพิ่งสร้าง
+# Expect: 200
+GET {{baseUrl}}/api/products/{{createProduct.response.body.$.data.id}}
+
+
+### ไม่พบสินค้า
+# Expect: 404  NOT_FOUND
+GET {{baseUrl}}/api/products/999999
+
+
+### id ไม่ถูกต้อง
+# Expect: 400  VALIDATION_ERROR
+GET {{baseUrl}}/api/products/abc
+
+
+### ------------------------------------------------------------
+### 6. PATCH /api/stock/adjust  ปรับสต็อก (+ เพิ่ม, - ลด)
+### ------------------------------------------------------------
+
+### เพิ่มสต็อก +10  (3 -> 13)
+# Expect: 200  (ได้ product ที่อัปเดตแล้ว และ transaction type IN)
+PATCH {{baseUrl}}/api/stock/adjust
+Content-Type: application/json
+
+{
+  "product_id": {{createProduct.response.body.$.data.id}},
+  "change": 10,
+  "reason": "รับของเข้า"
+}
+
+
+### ลดสต็อก -5  (13 -> 8)
+# Expect: 200  (transaction type OUT, quantity 5)
+PATCH {{baseUrl}}/api/stock/adjust
+Content-Type: application/json
+
+{
+  "product_id": {{createProduct.response.body.$.data.id}},
+  "change": -5,
+  "reason": "ขายออก"
+}
+
+
+### ลดเกินจำนวนคงเหลือ (เหลือ 8 แต่ขอลด 100) สต็อกต้องไม่เปลี่ยนและไม่มีประวัติเพิ่ม
+# Expect: 409  INSUFFICIENT_STOCK (details: available, requested)
+PATCH {{baseUrl}}/api/stock/adjust
+Content-Type: application/json
+
+{
+  "product_id": {{createProduct.response.body.$.data.id}},
+  "change": -100
+}
+
+
+### ลดจนเหลือ 0 พอดี (ทำได้)  (8 -> 0)
+# Expect: 200
+PATCH {{baseUrl}}/api/stock/adjust
+Content-Type: application/json
+
+{
+  "product_id": {{createProduct.response.body.$.data.id}},
+  "change": -8,
+  "reason": "ของหมด"
+}
+
+
+### change = 0 ไม่อนุญาต
+# Expect: 400  VALIDATION_ERROR
+PATCH {{baseUrl}}/api/stock/adjust
+Content-Type: application/json
+
+{
+  "product_id": {{createProduct.response.body.$.data.id}},
+  "change": 0
+}
+
+
+### change ไม่ใช่จำนวนเต็ม
+# Expect: 400  VALIDATION_ERROR
+PATCH {{baseUrl}}/api/stock/adjust
+Content-Type: application/json
+
+{
+  "product_id": {{createProduct.response.body.$.data.id}},
+  "change": 1.5
+}
+
+
+### ไม่พบสินค้า
+# Expect: 404  NOT_FOUND
+PATCH {{baseUrl}}/api/stock/adjust
+Content-Type: application/json
+
+{
+  "product_id": 999999,
+  "change": 1
+}
+
+
+### ------------------------------------------------------------
+### 7. GET /api/products/:id/transactions  ประวัติรายการ
+### ------------------------------------------------------------
+
+### ประวัติของสินค้าที่เพิ่งสร้าง (ใหม่ไปเก่า): OUT 8, OUT 5, IN 10, IN 3 "Initial stock"
+# Expect: 200  (4 รายการ และ stock_after ของรายการบนสุดเป็น 0)
+GET {{baseUrl}}/api/products/{{createProduct.response.body.$.data.id}}/transactions
+
+
+### แบ่งหน้า
+# Expect: 200  (meta.total_pages = 2)
+GET {{baseUrl}}/api/products/{{createProduct.response.body.$.data.id}}/transactions?page=1&limit=2
+
+
+### ไม่พบสินค้า
+# Expect: 404  NOT_FOUND
+GET {{baseUrl}}/api/products/999999/transactions
+
+
+### ------------------------------------------------------------
+### 8. Route ที่ไม่มีอยู่
+### ------------------------------------------------------------
+
+# Expect: 404  ROUTE_NOT_FOUND
+GET {{baseUrl}}/api/nothing
